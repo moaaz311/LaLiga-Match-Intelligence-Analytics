@@ -1,0 +1,76 @@
+-- =====================================================================
+-- STEP 1 of 3 - run BEFORE pasting the new measure
+-- Power BI Desktop > Modeling > New table  (one at a time, paste each block)
+-- Do NOT create relationships for the three "Pick" tables: they must stay disconnected.
+-- =====================================================================
+
+Home Pick =
+SELECTCOLUMNS (
+    Teams,
+    "Home Team", Teams[display_name],
+    "Home Team ID", Teams[team_id]
+)
+
+Away Pick =
+SELECTCOLUMNS (
+    Teams,
+    "Away Team", Teams[display_name],
+    "Away Team ID", Teams[team_id]
+)
+
+Compare Pick =
+SELECTCOLUMNS (
+    Dim_Players,
+    "Player Name", Dim_Players[name],
+    "Player ID", Dim_Players[player_id]
+)
+
+-- =====================================================================
+-- STEP 2 of 3 - add the 5th navigation tab
+-- Click the existing 'Dashboard Pages' table > Table tools > edit its DAX
+-- and replace the whole expression with this one (only the last row is new):
+-- =====================================================================
+
+Dashboard Pages =
+DATATABLE (
+    "PageKey", STRING,
+    "PageTitle", STRING,
+    "PageOrder", INTEGER,
+    {
+        { "overview", "League Overview", 1 },
+        { "teams", "Team Intelligence", 2 },
+        { "players", "Player Lab", 3 },
+        { "matches", "Match Centre", 4 },
+        { "compare", "Player Comparison", 5 }
+    }
+)
+
+-- =====================================================================
+-- STEP 3 of 3 - slicers on the report page (you create them, nothing is automatic)
+--
+--   Home Pick[Home Team]      -> Slicer, Dropdown, Single select ON, "Select all" OFF
+--   Away Pick[Away Team]      -> Slicer, Dropdown, Single select ON, "Select all" OFF
+--   Compare Pick[Player Name] -> Slicer, Dropdown or list, Multi-select (up to 4 are used)
+--
+-- Your existing club slicer (Teams) and player slicer (Dim_Players) stay as they are.
+-- With nothing selected: Match Centre shows the latest played match, and
+-- Player Comparison shows the top 3 goal scorers.
+--
+-- Show each slicer only on its own page with the same "cover" trick as before:
+-- one HTML Content visual per slicer, placed on top of it and moved in front.
+-- Use this measure, changing the page key and the colour to match your header:
+-- =====================================================================
+
+Cover Home Away =
+IF (
+    SELECTEDVALUE ( 'Dashboard Pages'[PageKey] ) = "matches",
+    "",
+    "<div style='width:100%;height:100%;background:#0B1426;'></div>"
+)
+
+Cover Compare =
+IF (
+    SELECTEDVALUE ( 'Dashboard Pages'[PageKey] ) = "compare",
+    "",
+    "<div style='width:100%;height:100%;background:#0B1426;'></div>"
+)

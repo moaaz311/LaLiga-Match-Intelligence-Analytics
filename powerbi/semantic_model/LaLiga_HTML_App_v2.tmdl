@@ -1,0 +1,669 @@
+createOrReplace
+
+	ref table Fact_Matches
+
+		measure 'HTML LaLiga App' =
+				-- LaLiga Match Intelligence v2 - one HTML measure drives all 5 pages
+				-- NEEDS: calculated tables 'Home Pick', 'Away Pick', 'Compare Pick' and the "compare" row in 'Dashboard Pages' (see setup_tables.dax)
+				VAR Z = 1 -- page zoom. Use 2 if you set the canvas to 2560 px wide, then check the layout
+				VAR Page = SELECTEDVALUE('Dashboard Pages'[PageKey], "overview")
+				VAR SeasonYr = COALESCE(MAXX(ALL('Fact_Matches'), 'Fact_Matches'[season]), 2026)
+				VAR SeasonLabel = FORMAT(SeasonYr, "0") & "/" & RIGHT(FORMAT(SeasonYr + 1, "0000"), 2)
+				VAR TeamsAll = ALL('Teams')
+				VAR PlayersAll = ALL('Dim_Players')
+				VAR AllM = ALL('Fact_Matches')
+				VAR LAll = ALL('Fact_Player_Leaders')
+				VAR TST = ALL('Fact_Team_Stats')
+
+				VAR CardS = "box-sizing:border-box;flex:1 1 300px;min-width:0;padding:16px;border-radius:16px;background:#111D31;border:1px solid #293B58;"
+				VAR TitleS = "font-size:13px;font-weight:900;letter-spacing:.6px;margin-bottom:10px;"
+				VAR MutedS = "font-size:10px;color:#A9B8CE;"
+				VAR FlexRowS = "display:flex;flex-wrap:wrap;gap:14px;align-items:stretch;"
+				VAR TileS = "box-sizing:border-box;flex:1 1 120px;min-width:0;padding:12px;border-radius:14px;background:#0F1A2D;border:1px solid #293B58;"
+				VAR ShellS = "<div style='box-sizing:border-box;width:100%;zoom:" & Z & ";padding:14px;background:#080E19;color:#F8FAFC;font-family:Segoe UI,Arial,sans-serif;display:flex;flex-direction:column;gap:14px;overflow-wrap:anywhere;'>"
+
+				-- League KPIs (ignore every slicer)
+				VAR FinalM = FILTER(AllM, 'Fact_Matches'[status] = "final")
+				VAR Played = COUNTROWS(FinalM)
+				VAR Upcoming = COUNTROWS(FILTER(AllM, 'Fact_Matches'[status] = "scheduled"))
+				VAR Completion = DIVIDE(Played, COUNTROWS(AllM))
+				VAR GoalsTotal = SUMX(FinalM, 'Fact_Matches'[Home_Score] + 'Fact_Matches'[Away_Score])
+				VAR AvgGoals = DIVIDE(GoalsTotal, Played)
+				VAR Draws = COUNTROWS(FILTER(FinalM, NOT ISBLANK('Fact_Matches'[Home_Score]) && 'Fact_Matches'[Home_Score] = 'Fact_Matches'[Away_Score]))
+				VAR HomeWinPct = DIVIDE(COUNTROWS(FILTER(FinalM, 'Fact_Matches'[Home_Score] > 'Fact_Matches'[Away_Score])), Played)
+				VAR KPIs =
+					{
+						(1, "MATCHES PLAYED", FORMAT(COALESCE(Played, 0), "#,##0"), FORMAT(COALESCE(Completion, 0), "0.0%") & " completed", "#28C39A"),
+						(2, "UPCOMING", FORMAT(COALESCE(Upcoming, 0), "#,##0"), "scheduled fixtures", "#F5B942"),
+						(3, "GOALS", FORMAT(COALESCE(GoalsTotal, 0), "#,##0"), "completed matches", "#E94560"),
+						(4, "GOALS / MATCH", FORMAT(COALESCE(AvgGoals, 0), "0.00"), "scoring average", "#A9B8CE"),
+						(5, "HOME WIN %", FORMAT(COALESCE(HomeWinPct, 0), "0.0%"), FORMAT(COALESCE(Draws, 0), "#,##0") & " draws", "#A9B8CE")
+					}
+				VAR KPIHTML =
+					"<div style='display:flex;flex-wrap:wrap;gap:10px;'>" &
+					CONCATENATEX(KPIs, "<div style='" & TileS & "'><div style='" & MutedS & "letter-spacing:1.1px;'>" & [Value2] & "</div><div style='font-size:24px;font-weight:900;margin-top:4px;'>" & [Value3] & "</div><div style='font-size:10px;margin-top:3px;color:" & [Value5] & ";'>" & [Value4] & "</div></div>", "", [Value1], ASC) &
+					"</div>"
+
+				-- Selected / default match. On the Match Centre the independent Home Pick / Away Pick slicers win.
+				VAR HPick = SELECTEDVALUE('Home Pick'[Home Team ID])
+				VAR APick = SELECTEDVALUE('Away Pick'[Away Team ID])
+				VAR HasPick = Page = "matches" && (NOT ISBLANK(HPick) || NOT ISBLANK(APick))
+				VAR PairRows = FILTER(AllM, (ISBLANK(HPick) || 'Fact_Matches'[Home_Team_ID] = HPick) && (ISBLANK(APick) || 'Fact_Matches'[Away_Team_ID] = APick))
+				VAR PairLast = TOPN(1, FILTER(PairRows, 'Fact_Matches'[status] = "final"), 'Fact_Matches'[date], DESC)
+				VAR PairNext = TOPN(1, FILTER(PairRows, 'Fact_Matches'[status] = "scheduled"), 'Fact_Matches'[date], ASC)
+				VAR PickID = COALESCE(MAXX(PairLast, 'Fact_Matches'[game_id]), MAXX(PairNext, 'Fact_Matches'[game_id]))
+				VAR SelectedGame = SELECTEDVALUE('Fact_Matches'[game_id])
+				VAR NextRow = TOPN(1, FILTER(AllM, 'Fact_Matches'[status] = "scheduled"), 'Fact_Matches'[date], ASC)
+				VAR LastRow = TOPN(1, FILTER(AllM, 'Fact_Matches'[status] = "final"), 'Fact_Matches'[date], DESC)
+				VAR MatchID =
+					COALESCE(
+						IF(HasPick, PickID),
+						SelectedGame,
+						IF(Page = "matches", MAXX(LastRow, 'Fact_Matches'[game_id]), COALESCE(MAXX(NextRow, 'Fact_Matches'[game_id]), MAXX(LastRow, 'Fact_Matches'[game_id])))
+					)
+				VAR MatchRow = FILTER(AllM, 'Fact_Matches'[game_id] = MatchID)
+				VAR HasMatch = NOT ISEMPTY(MatchRow)
+				VAR HID = COALESCE(IF(HasPick, HPick), MAXX(MatchRow, 'Fact_Matches'[Home_Team_ID]))
+				VAR AID = COALESCE(IF(HasPick, APick), MAXX(MatchRow, 'Fact_Matches'[Away_Team_ID]))
+				VAR HName = COALESCE(MAXX(MatchRow, 'Fact_Matches'[Home_Team]), MAXX(FILTER(TeamsAll, 'Teams'[team_id] = HID), 'Teams'[display_name]), "Home")
+				VAR AName = COALESCE(MAXX(MatchRow, 'Fact_Matches'[Away_Team]), MAXX(FILTER(TeamsAll, 'Teams'[team_id] = AID), 'Teams'[display_name]), "Away")
+				VAR HLogo = MAXX(FILTER(TeamsAll, 'Teams'[team_id] = HID), 'Teams'[logo])
+				VAR ALogo = MAXX(FILTER(TeamsAll, 'Teams'[team_id] = AID), 'Teams'[logo])
+				VAR HS = MAXX(MatchRow, 'Fact_Matches'[Home_Score])
+				VAR AS_ = MAXX(MatchRow, 'Fact_Matches'[Away_Score])
+				VAR MStatus = COALESCE(MAXX(MatchRow, 'Fact_Matches'[status]), "n/a")
+				VAR MDate = MAXX(MatchRow, 'Fact_Matches'[date])
+				VAR MVenue = COALESCE(MAXX(MatchRow, 'Fact_Matches'[venue]), "Venue TBC")
+				VAR MCity = MAXX(MatchRow, 'Fact_Matches'[city])
+				VAR MAtt = MAXX(MatchRow, 'Fact_Matches'[attendance])
+				VAR MLabel = IF(NOT HasMatch, "NO FIXTURE", IF(MStatus = "final", "FULL TIME", IF(MStatus = "scheduled", "UPCOMING", UPPER(MStatus))))
+				VAR ScoreText = IF(ISBLANK(HS) || ISBLANK(AS_), "VS", FORMAT(HS, "0") & " - " & FORMAT(AS_, "0"))
+				VAR MetaLine =
+					IF(
+						HasMatch,
+						IF(ISBLANK(MDate), "Date TBC", FORMAT(MDate, "dd MMM yyyy")) & " · " & MVenue & IF(ISBLANK(MCity), "", " · " & MCity) & IF(ISBLANK(MAtt), "", " · Att. " & MAtt),
+						"No fixture between these two clubs in the loaded season"
+					)
+				VAR HCrest = IF(ISBLANK(HLogo), "<div style='width:64px;height:64px;border-radius:50%;background:#263852;margin:auto;'></div>", "<img alt='' src='" & HLogo & "' style='width:64px;height:64px;object-fit:contain;'/>")
+				VAR ACrest = IF(ISBLANK(ALogo), "<div style='width:64px;height:64px;border-radius:50%;background:#263852;margin:auto;'></div>", "<img alt='' src='" & ALogo & "' style='width:64px;height:64px;object-fit:contain;'/>")
+				VAR MatchHero =
+					"<div style='" & CardS & "flex:1 1 380px;background:linear-gradient(135deg,#111D31,#1A2C47);'>" &
+					"<div style='display:flex;justify-content:space-between;" & MutedS & "letter-spacing:1.3px;'><span>LALIGA · MATCH CENTRE</span><b style='color:#F5B942;'>" & MLabel & "</b></div>" &
+					"<div style='display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:16px;'>" &
+					"<div style='flex:1;text-align:center;'>" & HCrest & "<div style='font-size:13px;font-weight:800;margin-top:6px;'>" & HName & "</div></div>" &
+					"<div style='font-size:30px;font-weight:900;color:#F5B942;white-space:nowrap;'>" & ScoreText & "</div>" &
+					"<div style='flex:1;text-align:center;'>" & ACrest & "<div style='font-size:13px;font-weight:800;margin-top:6px;'>" & AName & "</div></div></div>" &
+					"<div style='text-align:center;border-top:1px solid #344967;margin-top:14px;padding-top:10px;" & MutedS & "'>" & MetaLine & "</div></div>"
+
+				-- Fixtures
+				VAR FixT =
+					ADDCOLUMNS(
+						UNION(
+							TOPN(6, FILTER(AllM, 'Fact_Matches'[status] = "scheduled"), 'Fact_Matches'[date], ASC),
+							TOPN(6, FILTER(AllM, 'Fact_Matches'[status] = "final"), 'Fact_Matches'[date], DESC)
+						),
+						"RowHTML",
+							VAR l1 = MAXX(FILTER(TeamsAll, 'Teams'[team_id] = 'Fact_Matches'[Home_Team_ID]), 'Teams'[logo])
+							VAR l2 = MAXX(FILTER(TeamsAll, 'Teams'[team_id] = 'Fact_Matches'[Away_Team_ID]), 'Teams'[logo])
+							VAR Mid = IF('Fact_Matches'[status] = "final", FORMAT('Fact_Matches'[Home_Score], "0") & " - " & FORMAT('Fact_Matches'[Away_Score], "0"), FORMAT('Fact_Matches'[date], "dd MMM"))
+							RETURN
+								"<div style='display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 2px;border-bottom:1px solid #23334C;font-size:11px;'><div style='flex:1;min-width:0;'>" &
+								IF(ISBLANK(l1), "", "<img alt='' src='" & l1 & "' style='width:20px;height:20px;object-fit:contain;vertical-align:middle;margin-right:5px;'/>") & 'Fact_Matches'[Home_Team] &
+								"</div><b style='color:#F5B942;white-space:nowrap;'>" & Mid & "</b><div style='flex:1;min-width:0;text-align:right;'>" & 'Fact_Matches'[Away_Team] &
+								IF(ISBLANK(l2), "", "<img alt='' src='" & l2 & "' style='width:20px;height:20px;object-fit:contain;vertical-align:middle;margin-left:5px;'/>") & "</div></div>"
+					)
+				VAR UpcomingMarkup = CONCATENATEX(FILTER(FixT, 'Fact_Matches'[status] = "scheduled"), [RowHTML], "", 'Fact_Matches'[date], ASC)
+				VAR LatestMarkup = CONCATENATEX(FILTER(FixT, 'Fact_Matches'[status] = "final"), [RowHTML], "", 'Fact_Matches'[date], DESC)
+				VAR UpcomingCard = "<div style='" & CardS & "'><div style='" & TitleS & "'>UPCOMING FIXTURES</div>" & IF(UpcomingMarkup = "", "<div style='" & MutedS & "'>No scheduled fixtures.</div>", UpcomingMarkup) & "</div>"
+				VAR LatestCard = "<div style='" & CardS & "'><div style='" & TitleS & "'>LATEST RESULTS</div>" & IF(LatestMarkup = "", "<div style='" & MutedS & "'>No completed matches.</div>", LatestMarkup) & "</div>"
+
+				-- Standings
+				VAR LeaderRow = TOPN(1, ALL('Fact_Standings'), 'Fact_Standings'[rank], ASC)
+				VAR TeamID = COALESCE(SELECTEDVALUE('Teams'[team_id]), MAXX(LeaderRow, 'Fact_Standings'[team_id]))
+				VAR StandT =
+					ADDCOLUMNS(
+						ALL('Fact_Standings'),
+						"RowHTML",
+							VAR Lg = MAXX(FILTER(TeamsAll, 'Teams'[team_id] = 'Fact_Standings'[team_id]), 'Teams'[logo])
+							VAR Cr = IF(ISBLANK(Lg), "", "<img alt='' src='" & Lg & "' style='width:20px;height:20px;object-fit:contain;vertical-align:middle;margin-right:7px;'/>")
+							RETURN
+								"<tr style='border-bottom:1px solid #23334C;" & IF('Fact_Standings'[team_id] = TeamID, "background:#1E3354;", "") & "'>" &
+								"<td style='padding:7px 5px;color:#F5B942;font-weight:800;'>" & 'Fact_Standings'[rank] & "</td>" &
+								"<td style='padding:7px 5px;'>" & Cr & 'Fact_Standings'[display_name] & "</td>" &
+								"<td style='padding:7px 5px;text-align:center;color:#B9C5D8;'>" & 'Fact_Standings'[played] & "</td>" &
+								"<td style='padding:7px 5px;text-align:center;color:#B9C5D8;'>" & 'Fact_Standings'[wins] & "</td>" &
+								"<td style='padding:7px 5px;text-align:center;color:#B9C5D8;'>" & 'Fact_Standings'[draws] & "</td>" &
+								"<td style='padding:7px 5px;text-align:center;color:#B9C5D8;'>" & 'Fact_Standings'[losses] & "</td>" &
+								"<td style='padding:7px 5px;text-align:center;color:#B9C5D8;'>" & FORMAT('Fact_Standings'[goal_diff], "+0;-0;0") & "</td>" &
+								"<td style='padding:7px 5px;text-align:right;font-weight:900;'>" & 'Fact_Standings'[points] & "</td></tr>"
+					)
+				VAR StandHead = "<thead><tr style='color:#8FA2BD;text-align:left;border-bottom:1px solid #344763;'><th style='padding:6px 5px;'>#</th><th style='padding:6px 5px;'>CLUB</th><th style='padding:6px 5px;text-align:center;'>P</th><th style='padding:6px 5px;text-align:center;'>W</th><th style='padding:6px 5px;text-align:center;'>D</th><th style='padding:6px 5px;text-align:center;'>L</th><th style='padding:6px 5px;text-align:center;'>GD</th><th style='padding:6px 5px;text-align:right;'>PTS</th></tr></thead>"
+				VAR StandAll = CONCATENATEX(StandT, [RowHTML], "", 'Fact_Standings'[rank], ASC)
+				VAR StandCard = "<div style='" & CardS & "flex:2 1 440px;'><div style='" & TitleS & "'>LEAGUE TABLE <span style='font-size:9px;color:#F5B942;margin-left:6px;'>" & SeasonLabel & "</span></div><table style='width:100%;border-collapse:collapse;font-size:11px;'>" & StandHead & "<tbody>" & IF(StandAll = "", "<tr><td colspan='8' style='padding:12px;color:#A9B8CE;'>No standings data.</td></tr>", StandAll) & "</tbody></table></div>"
+
+				-- Player boards (avatar = initial underneath + photo on top, so a missing photo never shows a broken icon)
+				VAR TopGoals = TOPN(6, FILTER(LAll, 'Fact_Player_Leaders'[stat] = "goals"), 'Fact_Player_Leaders'[value], DESC, 'Fact_Player_Leaders'[name], ASC)
+				VAR TopAssists = TOPN(6, FILTER(LAll, 'Fact_Player_Leaders'[stat] = "assists"), 'Fact_Player_Leaders'[value], DESC, 'Fact_Player_Leaders'[name], ASC)
+				VAR TopXG = TOPN(6, FILTER(LAll, 'Fact_Player_Leaders'[stat] = "xg"), 'Fact_Player_Leaders'[value], DESC, 'Fact_Player_Leaders'[name], ASC)
+				VAR TopShots = TOPN(6, FILTER(LAll, 'Fact_Player_Leaders'[stat] = "shots"), 'Fact_Player_Leaders'[value], DESC, 'Fact_Player_Leaders'[name], ASC)
+				VAR PlayerID =
+					COALESCE(
+						SELECTEDVALUE('Dim_Players'[player_id]),
+						MAXX(TOPN(1, TopGoals, 'Fact_Player_Leaders'[value], DESC, 'Fact_Player_Leaders'[name], ASC), 'Fact_Player_Leaders'[player_id])
+					)
+				VAR TopT =
+					ADDCOLUMNS(
+						UNION(TopGoals, TopAssists, TopXG, TopShots),
+						"RowHTML",
+							VAR Ph = MAXX(FILTER(PlayersAll, 'Dim_Players'[player_id] = 'Fact_Player_Leaders'[player_id]), 'Dim_Players'[Player_Image_URL])
+							VAR Av =
+								"<div style='position:relative;flex:none;width:38px;height:38px;border-radius:50%;overflow:hidden;box-sizing:border-box;background:#263852;border:2px solid #F5B942;'>" &
+								"<span style='position:absolute;left:0;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center;color:#F5B942;font-weight:800;font-size:15px;'>" & LEFT('Fact_Player_Leaders'[name], 1) & "</span>" &
+								IF(ISBLANK(Ph), "", "<img alt='' src='" & Ph & "' style='position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover;'/>") & "</div>"
+							VAR Val = FORMAT('Fact_Player_Leaders'[value], IF('Fact_Player_Leaders'[stat] = "xg", "0.00", "0"))
+							RETURN
+								"<div style='display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:12px;border-bottom:1px solid #23334C;" & IF('Fact_Player_Leaders'[player_id] = PlayerID, "background:#1E3354;", "") & "'>" & Av &
+								"<div style='flex:1;min-width:0;'><div style='font-size:12px;font-weight:800;'>" & 'Fact_Player_Leaders'[name] & "</div><div style='" & MutedS & "'>" & 'Fact_Player_Leaders'[team] & "</div></div><b style='font-size:18px;color:#F5B942;'>" & Val & "</b></div>"
+					)
+				VAR GoalsList = CONCATENATEX(FILTER(TopT, 'Fact_Player_Leaders'[stat] = "goals"), [RowHTML], "", 'Fact_Player_Leaders'[value], DESC, 'Fact_Player_Leaders'[name], ASC)
+				VAR AssistsList = CONCATENATEX(FILTER(TopT, 'Fact_Player_Leaders'[stat] = "assists"), [RowHTML], "", 'Fact_Player_Leaders'[value], DESC, 'Fact_Player_Leaders'[name], ASC)
+				VAR XGList = CONCATENATEX(FILTER(TopT, 'Fact_Player_Leaders'[stat] = "xg"), [RowHTML], "", 'Fact_Player_Leaders'[value], DESC, 'Fact_Player_Leaders'[name], ASC)
+				VAR ShotsList = CONCATENATEX(FILTER(TopT, 'Fact_Player_Leaders'[stat] = "shots"), [RowHTML], "", 'Fact_Player_Leaders'[value], DESC, 'Fact_Player_Leaders'[name], ASC)
+				VAR GoalsCard = "<div style='" & CardS & "'><div style='" & TitleS & "'>GOLDEN BOOT <span style='font-size:9px;color:#F5B942;margin-left:6px;'>GOALS</span></div>" & IF(GoalsList = "", "<div style='" & MutedS & "'>No data.</div>", GoalsList) & "</div>"
+				VAR AssistsCard = "<div style='" & CardS & "'><div style='" & TitleS & "'>PLAYMAKERS <span style='font-size:9px;color:#F5B942;margin-left:6px;'>ASSISTS</span></div>" & IF(AssistsList = "", "<div style='" & MutedS & "'>No data.</div>", AssistsList) & "</div>"
+				VAR XGCard = "<div style='" & CardS & "'><div style='" & TitleS & "'>EXPECTED GOALS <span style='font-size:9px;color:#F5B942;margin-left:6px;'>XG</span></div>" & IF(XGList = "", "<div style='" & MutedS & "'>No data.</div>", XGList) & "</div>"
+				VAR ShotsCard = "<div style='" & CardS & "'><div style='" & TitleS & "'>SHOOTING <span style='font-size:9px;color:#F5B942;margin-left:6px;'>SHOTS</span></div>" & IF(ShotsList = "", "<div style='" & MutedS & "'>No data.</div>", ShotsList) & "</div>"
+
+				-- Selected player profile
+				VAR PRows = FILTER(LAll, 'Fact_Player_Leaders'[player_id] = PlayerID)
+				VAR PInfo = FILTER(PlayersAll, 'Dim_Players'[player_id] = PlayerID)
+				VAR PName = COALESCE(MAXX(PInfo, 'Dim_Players'[name]), MAXX(PRows, 'Fact_Player_Leaders'[name]), "Player")
+				VAR PTeam = COALESCE(MAXX(PInfo, 'Dim_Players'[team]), "Club unavailable")
+				VAR PPos = COALESCE(MAXX(PInfo, 'Dim_Players'[position]), "Player")
+				VAR PPhoto = MAXX(PInfo, 'Dim_Players'[Player_Image_URL])
+				VAR PPhotoHTML =
+					"<div style='position:relative;flex:none;width:96px;height:96px;border-radius:18px;overflow:hidden;box-sizing:border-box;background:#263852;border:2px solid #E94560;'>" &
+					"<span style='position:absolute;left:0;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center;color:#F5B942;font-size:34px;font-weight:900;'>" & LEFT(PName, 1) & "</span>" &
+					IF(ISBLANK(PPhoto), "", "<img alt='' src='" & PPhoto & "' style='position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover;'/>") & "</div>"
+				VAR vG = MAXX(FILTER(PRows, 'Fact_Player_Leaders'[stat] = "goals"), 'Fact_Player_Leaders'[value])
+				VAR vA = MAXX(FILTER(PRows, 'Fact_Player_Leaders'[stat] = "assists"), 'Fact_Player_Leaders'[value])
+				VAR vX = MAXX(FILTER(PRows, 'Fact_Player_Leaders'[stat] = "xg"), 'Fact_Player_Leaders'[value])
+				VAR vS = MAXX(FILTER(PRows, 'Fact_Player_Leaders'[stat] = "shots"), 'Fact_Player_Leaders'[value])
+				VAR pG = IF(ISBLANK(vG), 0, DIVIDE(COUNTROWS(FILTER(LAll, 'Fact_Player_Leaders'[stat] = "goals" && 'Fact_Player_Leaders'[value] <= vG)), COUNTROWS(FILTER(LAll, 'Fact_Player_Leaders'[stat] = "goals"))))
+				VAR pA = IF(ISBLANK(vA), 0, DIVIDE(COUNTROWS(FILTER(LAll, 'Fact_Player_Leaders'[stat] = "assists" && 'Fact_Player_Leaders'[value] <= vA)), COUNTROWS(FILTER(LAll, 'Fact_Player_Leaders'[stat] = "assists"))))
+				VAR pX = IF(ISBLANK(vX), 0, DIVIDE(COUNTROWS(FILTER(LAll, 'Fact_Player_Leaders'[stat] = "xg" && 'Fact_Player_Leaders'[value] <= vX)), COUNTROWS(FILTER(LAll, 'Fact_Player_Leaders'[stat] = "xg"))))
+				VAR pS = IF(ISBLANK(vS), 0, DIVIDE(COUNTROWS(FILTER(LAll, 'Fact_Player_Leaders'[stat] = "shots" && 'Fact_Player_Leaders'[value] <= vS)), COUNTROWS(FILTER(LAll, 'Fact_Player_Leaders'[stat] = "shots"))))
+				VAR Rings =
+					{
+						(1, "GOALS", IF(ISBLANK(vG), "—", FORMAT(vG, "0")), pG),
+						(2, "ASSISTS", IF(ISBLANK(vA), "—", FORMAT(vA, "0")), pA),
+						(3, "XG", IF(ISBLANK(vX), "—", FORMAT(vX, "0.00")), pX),
+						(4, "SHOTS", IF(ISBLANK(vS), "—", FORMAT(vS, "0")), pS)
+					}
+				VAR RingsHTML =
+					CONCATENATEX(Rings,
+						"<div style='text-align:center;'><div style='width:84px;height:84px;margin:auto;border-radius:50%;background:conic-gradient(#E94560 " & ROUND([Value4] * 360, 0) & "deg,#23334C 0);display:flex;align-items:center;justify-content:center;'><div style='width:64px;height:64px;border-radius:50%;background:#0F1A2D;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:900;'>" & [Value3] & "</div></div><div style='font-size:10px;font-weight:800;margin-top:6px;'>" & [Value2] & "</div><div style='" & MutedS & "'>PERCENTILE " & ROUND([Value4] * 100, 0) & "</div></div>",
+						"", [Value1], ASC)
+				VAR PGames = MAXX(PRows, 'Fact_Player_Leaders'[games])
+				VAR PMin = MAXX(PRows, 'Fact_Player_Leaders'[minutes])
+				VAR PG90 = MAXX(FILTER(PRows, 'Fact_Player_Leaders'[stat] = "goals"), 'Fact_Player_Leaders'[per90])
+				VAR PA90 = MAXX(FILTER(PRows, 'Fact_Player_Leaders'[stat] = "assists"), 'Fact_Player_Leaders'[per90])
+				VAR PSOT = MAXX(FILTER(PRows, 'Fact_Player_Leaders'[stat] = "shots_on_target"), 'Fact_Player_Leaders'[value])
+				VAR PYC = MAXX(FILTER(PRows, 'Fact_Player_Leaders'[stat] = "yellow_cards"), 'Fact_Player_Leaders'[value])
+				VAR PRC = MAXX(FILTER(PRows, 'Fact_Player_Leaders'[stat] = "red_cards"), 'Fact_Player_Leaders'[value])
+				VAR PlayerTiles =
+					{
+						(1, "APPEARANCES", FORMAT(COALESCE(PGames, 0), "0"), "games", "#A9B8CE"),
+						(2, "MINUTES", FORMAT(COALESCE(PMin, 0), "#,##0"), "played", "#A9B8CE"),
+						(3, "GOALS / 90", FORMAT(COALESCE(PG90, 0), "0.00"), "per 90 min", "#F5B942"),
+						(4, "ASSISTS / 90", FORMAT(COALESCE(PA90, 0), "0.00"), "per 90 min", "#F5B942"),
+						(5, "SHOTS ON TARGET", FORMAT(COALESCE(PSOT, 0), "0"), "season", "#3B82F6"),
+						(6, "CARDS", FORMAT(COALESCE(PYC, 0), "0") & " / " & FORMAT(COALESCE(PRC, 0), "0"), "yellow / red", "#E94560")
+					}
+				VAR PlayerTilesHTML = CONCATENATEX(PlayerTiles, "<div style='" & TileS & "'><div style='" & MutedS & "letter-spacing:1.1px;'>" & [Value2] & "</div><div style='font-size:24px;font-weight:900;margin-top:4px;'>" & [Value3] & "</div><div style='font-size:10px;margin-top:3px;color:" & [Value5] & ";'>" & [Value4] & "</div></div>", "", [Value1], ASC)
+
+				-- Radar (Player Lab + Player Comparison). Axes are PER-90 values from the leaders boards.
+				-- Score = player per-90 / league max per-90 for that stat (players with 270+ minutes). A player missing from a board scores 0 on it.
+				VAR AxT =
+					ADDCOLUMNS(
+						ADDCOLUMNS(
+							{(1, "GOALS", "goals"), (2, "ASSISTS", "assists"), (3, "xG", "xg"), (4, "SHOTS", "shots"), (5, "ON TARGET", "shots_on_target"), (6, "G+A", "goal_contributions")},
+							"Mx",
+								VAR sk = [Value3]
+								RETURN MAXX(FILTER(LAll, 'Fact_Player_Leaders'[stat] = sk && 'Fact_Player_Leaders'[minutes] >= 270), 'Fact_Player_Leaders'[per90]),
+							"Ang", -PI() / 2 + ([Value1] - 1) * PI() / 3
+						),
+						"Cs", COS([Ang]),
+						"Sn", SIN([Ang])
+					)
+				VAR HasCmpSel = ISFILTERED('Compare Pick'[Player Name])
+				VAR CmpRaw =
+					UNION(
+						FILTER(SELECTCOLUMNS('Compare Pick', "pid", 'Compare Pick'[Player ID], "pn", 'Compare Pick'[Player Name]), HasCmpSel),
+						FILTER(SELECTCOLUMNS(TOPN(3, TopGoals, 'Fact_Player_Leaders'[value], DESC, 'Fact_Player_Leaders'[name], ASC), "pid", 'Fact_Player_Leaders'[player_id], "pn", 'Fact_Player_Leaders'[name]), NOT HasCmpSel)
+					)
+				VAR CmpIDs = TOPN(4, CmpRaw, [pn], ASC, [pid], ASC)
+				VAR IsCmpPage = Page = "compare"
+				VAR SelP =
+					UNION(
+						FILTER(CmpIDs, IsCmpPage),
+						FILTER(ROW("pid", PlayerID, "pn", ""), NOT IsCmpPage)
+					)
+				VAR SelPT =
+					ADDCOLUMNS(
+						ADDCOLUMNS(
+							ADDCOLUMNS(
+								SelP,
+								"idx",
+									VAR cpid = [pid]
+									VAR cpn = [pn]
+									RETURN COUNTROWS(FILTER(SelP, [pn] < cpn || ([pn] = cpn && [pid] <= cpid)))
+							),
+							"Nm",
+								VAR npid = [pid]
+								RETURN COALESCE(MAXX(FILTER(PlayersAll, 'Dim_Players'[player_id] = npid), 'Dim_Players'[name]), MAXX(FILTER(LAll, 'Fact_Player_Leaders'[player_id] = npid), 'Fact_Player_Leaders'[name]), "Player")
+						),
+						"Col", SWITCH([idx], 1, "#E94560", 2, "#3B82F6", 3, "#F5B942", "#28C39A")
+					)
+				VAR RingsSVG =
+					CONCATENATEX(
+						{0.33, 0.66, 1},
+						VAR rr = [Value]
+						RETURN "<polygon points='" & CONCATENATEX(AxT, FORMAT(150 + 80 * rr * [Cs], "0.0", "en-US") & "," & FORMAT(125 + 80 * rr * [Sn], "0.0", "en-US"), " ", [Value1], ASC) & "' fill='none' stroke='#2A3B57' stroke-width='1'/>",
+						"", [Value], ASC
+					)
+				VAR SpokesSVG = CONCATENATEX(AxT, "<line x1='150' y1='125' x2='" & FORMAT(150 + 80 * [Cs], "0.0", "en-US") & "' y2='" & FORMAT(125 + 80 * [Sn], "0.0", "en-US") & "' stroke='#2A3B57' stroke-width='1'/>", "", [Value1], ASC)
+				VAR LabelsSVG = CONCATENATEX(AxT, "<text x='" & FORMAT(150 + 104 * [Cs], "0.0", "en-US") & "' y='" & FORMAT(129 + 104 * [Sn], "0.0", "en-US") & "' fill='#A9B8CE' font-size='10' font-weight='700' text-anchor='" & IF(ABS([Cs]) < 0.25, "middle", IF([Cs] > 0, "start", "end")) & "'>" & [Value2] & "</text>", "", [Value1], ASC)
+				VAR PolySVG =
+					CONCATENATEX(
+						SelPT,
+						VAR rp = [pid]
+						VAR rcol = [Col]
+						VAR rnm = [Nm]
+						VAR PT =
+							ADDCOLUMNS(
+								ADDCOLUMNS(
+									AxT,
+									"V",
+										VAR rsk = [Value3]
+										RETURN MAXX(FILTER(LAll, 'Fact_Player_Leaders'[player_id] = rp && 'Fact_Player_Leaders'[stat] = rsk), 'Fact_Player_Leaders'[per90])
+								),
+								"Sc", MIN(1, DIVIDE([V], [Mx], 0))
+							)
+						VAR Pts = CONCATENATEX(PT, FORMAT(150 + 80 * [Sc] * [Cs], "0.0", "en-US") & "," & FORMAT(125 + 80 * [Sc] * [Sn], "0.0", "en-US"), " ", [Value1], ASC)
+						VAR Tip = rnm & " (per 90): " & CONCATENATEX(PT, [Value2] & " " & IF(ISBLANK([V]), "n/a", FORMAT([V], "0.00")), " · ", [Value1], ASC)
+						RETURN "<polygon points='" & Pts & "' fill='" & rcol & "' fill-opacity='.2' stroke='" & rcol & "' stroke-width='2'><title>" & Tip & "</title></polygon>",
+						"", [idx], ASC
+					)
+				VAR RadarHTML = "<svg viewBox='0 0 300 250' xmlns='http://www.w3.org/2000/svg' style='width:100%;height:auto;display:block;'>" & RingsSVG & SpokesSVG & PolySVG & LabelsSVG & "</svg>"
+				VAR RadarLegend = CONCATENATEX(SelPT, "<span style='display:inline-flex;align-items:center;gap:5px;margin:2px 8px;font-size:10px;'><i style='display:inline-block;width:10px;height:10px;border-radius:50%;background:" & [Col] & ";'></i>" & [Nm] & "</span>", "", [idx], ASC)
+				VAR RadarBox = "<div style='flex:1 1 230px;min-width:200px;max-width:300px;'>" & RadarHTML & "<div style='" & MutedS & "text-align:center;'>PER-90 PROFILE · % OF LEAGUE MAX</div></div>"
+
+				-- Selected club profile
+				VAR TInfo = FILTER(TeamsAll, 'Teams'[team_id] = TeamID)
+				VAR TName = COALESCE(MAXX(TInfo, 'Teams'[display_name]), MAXX(TInfo, 'Teams'[name]), "Club")
+				VAR TN1 = COALESCE(MAXX(TInfo, 'Teams'[name]), "~")
+				VAR TN2 = COALESCE(MAXX(TInfo, 'Teams'[display_name]), "~")
+				VAR TN3 = COALESCE(MAXX(TInfo, 'Teams'[short_name]), "~")
+				VAR TAb = COALESCE(MAXX(TInfo, 'Teams'[abbrev]), "~")
+				VAR TLogo = MAXX(TInfo, 'Teams'[logo])
+				VAR TLogoHTML = IF(ISBLANK(TLogo), "<div style='width:80px;height:80px;border-radius:16px;background:#263852;color:#F5B942;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:900;'>" & LEFT(TName, 1) & "</div>", "<img alt='' src='" & TLogo & "' style='width:80px;height:80px;object-fit:contain;background:#F8FAFC;border-radius:16px;padding:7px;'/>")
+				VAR StandRowT = FILTER(ALL('Fact_Standings'), 'Fact_Standings'[team_id] = TeamID)
+				VAR TRank = MAXX(StandRowT, 'Fact_Standings'[rank])
+				VAR TPts = MAXX(StandRowT, 'Fact_Standings'[points])
+				VAR TGD = MAXX(StandRowT, 'Fact_Standings'[goal_diff])
+				VAR TS = FILTER(TST, 'Fact_Team_Stats'[team_id] = TeamID)
+				VAR TCS = MAXX(TS, 'Fact_Team_Stats'[clean_sheets])
+				VAR Elo = MAXX(FILTER(ALL('Fact_Ratings'), 'Fact_Ratings'[team_id] = TeamID), 'Fact_Ratings'[elo])
+				VAR TeamTiles =
+					{
+						(1, "LEAGUE POSITION", IF(ISBLANK(TRank), "—", "#" & FORMAT(TRank, "0")), "of " & COUNTROWS(ALL('Fact_Standings')) & " clubs", "#F5B942"),
+						(2, "POINTS", IF(ISBLANK(TPts), "—", FORMAT(TPts, "0")), FORMAT(COALESCE(TGD, 0), "+0;-0;0") & " goal diff", "#28C39A"),
+						(3, "ELO RATING", IF(ISBLANK(Elo), "—", FORMAT(Elo, "0")), "power ranking", "#3B82F6"),
+						(4, "CLEAN SHEETS", FORMAT(COALESCE(TCS, 0), "0"), "season", "#A9B8CE")
+					}
+				VAR TeamTilesHTML = CONCATENATEX(TeamTiles, "<div style='" & TileS & "'><div style='" & MutedS & "letter-spacing:1.1px;'>" & [Value2] & "</div><div style='font-size:24px;font-weight:900;margin-top:4px;'>" & [Value3] & "</div><div style='font-size:10px;margin-top:3px;color:" & [Value5] & ";'>" & [Value4] & "</div></div>", "", [Value1], ASC)
+				VAR TeamHero =
+					"<div style='" & CardS & "flex:1 1 100%;background:linear-gradient(130deg,#111D31,#1C2D48);display:flex;flex-wrap:wrap;align-items:center;gap:16px;'>" & TLogoHTML &
+					"<div style='flex:1 1 170px;min-width:0;'><div style='font-size:9px;letter-spacing:1.5px;color:#F5B942;font-weight:800;'>CLUB PROFILE</div><div style='font-size:24px;font-weight:900;margin-top:4px;'>" & TName & "</div><div style='" & MutedS & "margin-top:3px;'>LALIGA " & SeasonLabel & "</div></div>" &
+					"<div style='display:flex;flex-wrap:wrap;gap:10px;flex:3 1 400px;'>" & TeamTilesHTML & "</div></div>"
+				VAR StandNear = CONCATENATEX(FILTER(StandT, ABS('Fact_Standings'[rank] - COALESCE(TRank, 1)) <= 2), [RowHTML], "", 'Fact_Standings'[rank], ASC)
+				VAR StandNearCard = "<div style='" & CardS & "flex:1 1 360px;'><div style='" & TitleS & "'>LEAGUE POSITION</div><table style='width:100%;border-collapse:collapse;font-size:11px;'>" & StandHead & "<tbody>" & StandNear & "</tbody></table></div>"
+
+				VAR TeamMetrics =
+					{
+						(1, "ATT", "GOALS / MATCH", COALESCE(MAXX(TS, 'Fact_Team_Stats'[goals_for]), 0), MAXX(TST, 'Fact_Team_Stats'[goals_for]), AVERAGEX(TST, 'Fact_Team_Stats'[goals_for]), FORMAT(MAXX(TS, 'Fact_Team_Stats'[goals_for]), "0.00")),
+						(2, "ATT", "XG / MATCH", COALESCE(MAXX(TS, 'Fact_Team_Stats'[xg_for]), 0), MAXX(TST, 'Fact_Team_Stats'[xg_for]), AVERAGEX(TST, 'Fact_Team_Stats'[xg_for]), FORMAT(MAXX(TS, 'Fact_Team_Stats'[xg_for]), "0.00")),
+						(3, "ATT", "SHOTS / MATCH", COALESCE(MAXX(TS, 'Fact_Team_Stats'[shots_for]), 0), MAXX(TST, 'Fact_Team_Stats'[shots_for]), AVERAGEX(TST, 'Fact_Team_Stats'[shots_for]), FORMAT(MAXX(TS, 'Fact_Team_Stats'[shots_for]), "0.00")),
+						(4, "ATT", "POSSESSION %", COALESCE(MAXX(TS, 'Fact_Team_Stats'[possession_pct]), 0), MAXX(TST, 'Fact_Team_Stats'[possession_pct]), AVERAGEX(TST, 'Fact_Team_Stats'[possession_pct]), FORMAT(MAXX(TS, 'Fact_Team_Stats'[possession_pct]), "0.0")),
+						(5, "ATT", "PASS ACCURACY %", COALESCE(MAXX(TS, 'Fact_Team_Stats'[pass_accuracy_pct]), 0), MAXX(TST, 'Fact_Team_Stats'[pass_accuracy_pct]), AVERAGEX(TST, 'Fact_Team_Stats'[pass_accuracy_pct]), FORMAT(MAXX(TS, 'Fact_Team_Stats'[pass_accuracy_pct]), "0.0")),
+						(6, "DEF", "GOALS CONCEDED", COALESCE(MAXX(TS, 'Fact_Team_Stats'[goals_against]), 0), MAXX(TST, 'Fact_Team_Stats'[goals_against]), AVERAGEX(TST, 'Fact_Team_Stats'[goals_against]), FORMAT(MAXX(TS, 'Fact_Team_Stats'[goals_against]), "0.00")),
+						(7, "DEF", "XG CONCEDED", COALESCE(MAXX(TS, 'Fact_Team_Stats'[xg_against]), 0), MAXX(TST, 'Fact_Team_Stats'[xg_against]), AVERAGEX(TST, 'Fact_Team_Stats'[xg_against]), FORMAT(MAXX(TS, 'Fact_Team_Stats'[xg_against]), "0.00")),
+						(8, "DEF", "SHOTS AGAINST", COALESCE(MAXX(TS, 'Fact_Team_Stats'[shots_against]), 0), MAXX(TST, 'Fact_Team_Stats'[shots_against]), AVERAGEX(TST, 'Fact_Team_Stats'[shots_against]), FORMAT(MAXX(TS, 'Fact_Team_Stats'[shots_against]), "0.00")),
+						(9, "SET", "CORNERS", COALESCE(MAXX(TS, 'Fact_Team_Stats'[corners]), 0), MAXX(TST, 'Fact_Team_Stats'[corners]), AVERAGEX(TST, 'Fact_Team_Stats'[corners]), FORMAT(MAXX(TS, 'Fact_Team_Stats'[corners]), "0.00")),
+						(10, "SET", "FOULS", COALESCE(MAXX(TS, 'Fact_Team_Stats'[fouls]), 0), MAXX(TST, 'Fact_Team_Stats'[fouls]), AVERAGEX(TST, 'Fact_Team_Stats'[fouls]), FORMAT(MAXX(TS, 'Fact_Team_Stats'[fouls]), "0.00")),
+						(11, "SET", "YELLOW CARDS", COALESCE(MAXX(TS, 'Fact_Team_Stats'[yellow_cards]), 0), MAXX(TST, 'Fact_Team_Stats'[yellow_cards]), AVERAGEX(TST, 'Fact_Team_Stats'[yellow_cards]), FORMAT(MAXX(TS, 'Fact_Team_Stats'[yellow_cards]), "0.00")),
+						(12, "SET", "TACKLES", COALESCE(MAXX(TS, 'Fact_Team_Stats'[tackles]), 0), MAXX(TST, 'Fact_Team_Stats'[tackles]), AVERAGEX(TST, 'Fact_Team_Stats'[tackles]), FORMAT(MAXX(TS, 'Fact_Team_Stats'[tackles]), "0.00")),
+						(13, "SET", "INTERCEPTIONS", COALESCE(MAXX(TS, 'Fact_Team_Stats'[interceptions]), 0), MAXX(TST, 'Fact_Team_Stats'[interceptions]), AVERAGEX(TST, 'Fact_Team_Stats'[interceptions]), FORMAT(MAXX(TS, 'Fact_Team_Stats'[interceptions]), "0.00"))
+					}
+				VAR BarsT =
+					ADDCOLUMNS(
+						TeamMetrics,
+						"RowHTML",
+							"<div style='margin:9px 0;'><div style='display:flex;justify-content:space-between;font-size:11px;'><span style='color:#A9B8CE;'>" & [Value3] & "</span><span><b>" & [Value7] & "</b> <span style='" & MutedS & "'>· league " & FORMAT([Value6], "0.00") & "</span></span></div>" &
+							"<div style='position:relative;height:7px;border-radius:4px;background:#23334C;margin-top:5px;'><div style='width:" & MIN(100, ROUND(100 * DIVIDE([Value4], [Value5], 0), 0)) & "%;height:7px;border-radius:4px;background:" & SWITCH([Value2], "ATT", "#E94560", "DEF", "#3B82F6", "#F5B942") & ";'></div>" &
+							"<div style='position:absolute;top:-2px;left:" & MIN(100, ROUND(100 * DIVIDE([Value6], [Value5], 0), 0)) & "%;width:2px;height:11px;background:#F8FAFC;'></div></div></div>"
+					)
+				VAR AttackCard = "<div style='" & CardS & "'><div style='" & TitleS & "'>ATTACKING <span style='font-size:9px;color:#E94560;margin-left:6px;'>vs LEAGUE AVG</span></div>" & CONCATENATEX(FILTER(BarsT, [Value2] = "ATT"), [RowHTML], "", [Value1], ASC) & "</div>"
+				VAR DefenceCard = "<div style='" & CardS & "'><div style='" & TitleS & "'>DEFENDING <span style='font-size:9px;color:#3B82F6;margin-left:6px;'>vs LEAGUE AVG</span></div>" & CONCATENATEX(FILTER(BarsT, [Value2] = "DEF"), [RowHTML], "", [Value1], ASC) & "</div>"
+				VAR SetCard = "<div style='" & CardS & "'><div style='" & TitleS & "'>SET PIECES &amp; DISCIPLINE <span style='font-size:9px;color:#F5B942;margin-left:6px;'>vs LEAGUE AVG</span></div>" & CONCATENATEX(FILTER(BarsT, [Value2] = "SET"), [RowHTML], "", [Value1], ASC) & "</div>"
+
+				-- Home / away split for the selected club
+				VAR TeamHome = FILTER(FinalM, 'Fact_Matches'[Home_Team_ID] = TeamID)
+				VAR TeamAway = FILTER(FinalM, 'Fact_Matches'[Away_Team_ID] = TeamID)
+				VAR HAT =
+					{
+						(1, "HOME", COUNTROWS(TeamHome) + 0, COUNTROWS(FILTER(TeamHome, 'Fact_Matches'[Home_Score] > 'Fact_Matches'[Away_Score])) + 0, COUNTROWS(FILTER(TeamHome, 'Fact_Matches'[Home_Score] = 'Fact_Matches'[Away_Score])) + 0, COUNTROWS(FILTER(TeamHome, 'Fact_Matches'[Home_Score] < 'Fact_Matches'[Away_Score])) + 0, SUMX(TeamHome, 'Fact_Matches'[Home_Score]) + 0, SUMX(TeamHome, 'Fact_Matches'[Away_Score]) + 0),
+						(2, "AWAY", COUNTROWS(TeamAway) + 0, COUNTROWS(FILTER(TeamAway, 'Fact_Matches'[Away_Score] > 'Fact_Matches'[Home_Score])) + 0, COUNTROWS(FILTER(TeamAway, 'Fact_Matches'[Away_Score] = 'Fact_Matches'[Home_Score])) + 0, COUNTROWS(FILTER(TeamAway, 'Fact_Matches'[Away_Score] < 'Fact_Matches'[Home_Score])) + 0, SUMX(TeamAway, 'Fact_Matches'[Away_Score]) + 0, SUMX(TeamAway, 'Fact_Matches'[Home_Score]) + 0)
+					}
+				VAR HAHead = "<thead><tr style='color:#8FA2BD;text-align:center;border-bottom:1px solid #344763;'><th style='padding:6px 5px;text-align:left;'>VENUE</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GF</th><th>GA</th></tr></thead>"
+				VAR HARows = CONCATENATEX(HAT, "<tr style='border-bottom:1px solid #23334C;text-align:center;'><td style='padding:8px 5px;text-align:left;font-weight:800;color:#F5B942;'>" & [Value2] & "</td><td>" & [Value3] & "</td><td>" & [Value4] & "</td><td>" & [Value5] & "</td><td>" & [Value6] & "</td><td>" & [Value7] & "</td><td>" & [Value8] & "</td></tr>", "", [Value1], ASC)
+				VAR HomeAwayCard = "<div style='" & CardS & "'><div style='" & TitleS & "'>HOME vs AWAY <span style='font-size:9px;color:#F5B942;margin-left:6px;'>COMPLETED MATCHES</span></div><table style='width:100%;border-collapse:collapse;font-size:12px;'>" & HAHead & "<tbody>" & HARows & "</tbody></table></div>"
+
+				VAR SquadT = TOPN(8, FILTER(LAll, 'Fact_Player_Leaders'[stat] = "goals" && ('Fact_Player_Leaders'[team] = TAb || 'Fact_Player_Leaders'[team] = TN1 || 'Fact_Player_Leaders'[team] = TN2 || 'Fact_Player_Leaders'[team] = TN3)), 'Fact_Player_Leaders'[value], DESC, 'Fact_Player_Leaders'[name], ASC)
+				VAR SquadMarkup =
+					CONCATENATEX(SquadT,
+						"<tr style='border-bottom:1px solid #23334C;'><td style='padding:7px 5px;font-weight:700;'>" & 'Fact_Player_Leaders'[name] & "</td><td style='padding:7px 5px;color:#A9B8CE;'>" & 'Fact_Player_Leaders'[position] & "</td><td style='padding:7px 5px;text-align:center;'>" & 'Fact_Player_Leaders'[games] & "</td><td style='padding:7px 5px;text-align:center;'>" & FORMAT('Fact_Player_Leaders'[minutes], "#,##0") & "</td><td style='padding:7px 5px;text-align:right;color:#F5B942;font-weight:800;'>" & FORMAT('Fact_Player_Leaders'[value], "0") & "</td></tr>",
+						"", 'Fact_Player_Leaders'[value], DESC, 'Fact_Player_Leaders'[name], ASC)
+				VAR SquadCard =
+					"<div style='" & CardS & "flex:2 1 440px;'><div style='" & TitleS & "'>SQUAD <span style='font-size:9px;color:#F5B942;margin-left:6px;'>TOP SCORERS</span></div><table style='width:100%;border-collapse:collapse;font-size:11px;'><thead><tr style='color:#8FA2BD;text-align:left;border-bottom:1px solid #344763;'><th style='padding:6px 5px;'>PLAYER</th><th style='padding:6px 5px;'>POS</th><th style='padding:6px 5px;text-align:center;'>GP</th><th style='padding:6px 5px;text-align:center;'>MIN</th><th style='padding:6px 5px;text-align:right;'>G</th></tr></thead><tbody>" &
+					IF(SquadMarkup = "", "<tr><td colspan='5' style='padding:12px;color:#A9B8CE;'>No players matched this club in the leaders boards (top 100 per stat only).</td></tr>", SquadMarkup) & "</tbody></table></div>"
+				VAR TeamRecent =
+					CONCATENATEX(
+						TOPN(6, FILTER(FinalM, 'Fact_Matches'[Home_Team_ID] = TeamID || 'Fact_Matches'[Away_Team_ID] = TeamID), 'Fact_Matches'[date], DESC),
+						VAR IsH = 'Fact_Matches'[Home_Team_ID] = TeamID
+						VAR GF = IF(IsH, 'Fact_Matches'[Home_Score], 'Fact_Matches'[Away_Score])
+						VAR GA = IF(IsH, 'Fact_Matches'[Away_Score], 'Fact_Matches'[Home_Score])
+						VAR R = IF(GF > GA, "W", IF(GF < GA, "L", "D"))
+						VAR Col = SWITCH(R, "W", "#28C39A", "L", "#E94560", "#F5B942")
+						RETURN
+							"<div style='display:flex;align-items:center;gap:8px;padding:7px 2px;border-bottom:1px solid #23334C;font-size:11px;'><span style='width:20px;height:20px;line-height:20px;text-align:center;border-radius:50%;background:" & Col & ";color:#08101D;font-weight:900;font-size:10px;'>" & R & "</span><span style='flex:1;min-width:0;'>" & IF(IsH, "vs " & 'Fact_Matches'[Away_Team], "@ " & 'Fact_Matches'[Home_Team]) & "</span><b>" & FORMAT(GF, "0") & " - " & FORMAT(GA, "0") & "</b><span style='" & MutedS & "'>" & FORMAT('Fact_Matches'[date], "dd MMM") & "</span></div>",
+						"", 'Fact_Matches'[date], DESC)
+				VAR RecentCard = "<div style='" & CardS & "'><div style='" & TitleS & "'>RECENT RESULTS</div>" & IF(TeamRecent = "", "<div style='" & MutedS & "'>No completed matches for this club.</div>", TeamRecent) & "</div>"
+
+				-- Match Centre: two independent clubs (HID = home pick, AID = away pick)
+				VAR HTS = FILTER(TST, 'Fact_Team_Stats'[team_id] = HID)
+				VAR ATS = FILTER(TST, 'Fact_Team_Stats'[team_id] = AID)
+				VAR H2HBase =
+					{
+						(1, "GOALS / MATCH", "0.00", MAXX(HTS, 'Fact_Team_Stats'[goals_for]), MAXX(ATS, 'Fact_Team_Stats'[goals_for])),
+						(2, "XG / MATCH", "0.00", MAXX(HTS, 'Fact_Team_Stats'[xg_for]), MAXX(ATS, 'Fact_Team_Stats'[xg_for])),
+						(3, "SHOTS / MATCH", "0.0", MAXX(HTS, 'Fact_Team_Stats'[shots_for]), MAXX(ATS, 'Fact_Team_Stats'[shots_for])),
+						(4, "SHOTS ON TARGET", "0.0", MAXX(HTS, 'Fact_Team_Stats'[shots_on_target_for]), MAXX(ATS, 'Fact_Team_Stats'[shots_on_target_for])),
+						(5, "POSSESSION %", "0.0", MAXX(HTS, 'Fact_Team_Stats'[possession_pct]), MAXX(ATS, 'Fact_Team_Stats'[possession_pct])),
+						(6, "PASS ACCURACY %", "0.0", MAXX(HTS, 'Fact_Team_Stats'[pass_accuracy_pct]), MAXX(ATS, 'Fact_Team_Stats'[pass_accuracy_pct])),
+						(7, "PASSES", "0", MAXX(HTS, 'Fact_Team_Stats'[passes]), MAXX(ATS, 'Fact_Team_Stats'[passes])),
+						(8, "CORNERS", "0.0", MAXX(HTS, 'Fact_Team_Stats'[corners]), MAXX(ATS, 'Fact_Team_Stats'[corners])),
+						(9, "FOULS", "0.0", MAXX(HTS, 'Fact_Team_Stats'[fouls]), MAXX(ATS, 'Fact_Team_Stats'[fouls])),
+						(10, "YELLOW CARDS", "0.0", MAXX(HTS, 'Fact_Team_Stats'[yellow_cards]), MAXX(ATS, 'Fact_Team_Stats'[yellow_cards])),
+						(11, "TACKLES", "0.0", MAXX(HTS, 'Fact_Team_Stats'[tackles]), MAXX(ATS, 'Fact_Team_Stats'[tackles])),
+						(12, "INTERCEPTIONS", "0.0", MAXX(HTS, 'Fact_Team_Stats'[interceptions]), MAXX(ATS, 'Fact_Team_Stats'[interceptions])),
+						(13, "GOALS CONCEDED", "0.00", MAXX(HTS, 'Fact_Team_Stats'[goals_against]), MAXX(ATS, 'Fact_Team_Stats'[goals_against])),
+						(14, "XG CONCEDED", "0.00", MAXX(HTS, 'Fact_Team_Stats'[xg_against]), MAXX(ATS, 'Fact_Team_Stats'[xg_against])),
+						(15, "CLEAN SHEETS", "0", MAXX(HTS, 'Fact_Team_Stats'[clean_sheets]), MAXX(ATS, 'Fact_Team_Stats'[clean_sheets]))
+					}
+				VAR H2H =
+					ADDCOLUMNS(
+						H2HBase,
+						"Ht", IF(ISBLANK([Value4]), "—", FORMAT([Value4], [Value3])),
+						"At", IF(ISBLANK([Value5]), "—", FORMAT([Value5], [Value3]))
+					)
+				VAR H2HRows =
+					CONCATENATEX(
+						H2H,
+						"<div style='margin:8px 0;'><div style='display:flex;justify-content:space-between;font-size:12px;'><b style='color:#3B82F6;'>" & [Ht] & "</b><span style='" & MutedS & "'>" & [Value2] & "</span><b style='color:#E94560;'>" & [At] & "</b></div><div style='display:flex;height:6px;border-radius:3px;overflow:hidden;margin-top:4px;background:#23334C;'><div style='width:" & ROUND(100 * DIVIDE(COALESCE([Value4], 0), COALESCE([Value4], 0) + COALESCE([Value5], 0), 0.5), 0) & "%;background:#3B82F6;'></div><div style='flex:1;background:#E94560;'></div></div></div>",
+						"", [Value1], ASC
+					)
+				VAR H2HCard =
+					"<div style='" & CardS & "flex:2 1 460px;'><div style='" & TitleS & "'>SEASON PROFILE <span style='font-size:9px;margin-left:6px;'><b style='color:#3B82F6;'>" & HName & "</b> vs <b style='color:#E94560;'>" & AName & "</b></span></div>" & H2HRows &
+					"<div style='" & MutedS & "margin-top:8px;'>Values as stored in Fact_Team_Stats. The bar shows each club's share of the two values.</div></div>"
+
+				VAR HSR = FILTER(ALL('Fact_Standings'), 'Fact_Standings'[team_id] = HID)
+				VAR ASR = FILTER(ALL('Fact_Standings'), 'Fact_Standings'[team_id] = AID)
+				VAR HRk = MAXX(HSR, 'Fact_Standings'[rank])
+				VAR ARk = MAXX(ASR, 'Fact_Standings'[rank])
+				VAR HPt = MAXX(HSR, 'Fact_Standings'[points])
+				VAR APt = MAXX(ASR, 'Fact_Standings'[points])
+				VAR HGDv = MAXX(HSR, 'Fact_Standings'[goal_diff])
+				VAR AGDv = MAXX(ASR, 'Fact_Standings'[goal_diff])
+				VAR HElo = MAXX(FILTER(ALL('Fact_Ratings'), 'Fact_Ratings'[team_id] = HID), 'Fact_Ratings'[elo])
+				VAR AElo = MAXX(FILTER(ALL('Fact_Ratings'), 'Fact_Ratings'[team_id] = AID), 'Fact_Ratings'[elo])
+				VAR HHRows = FILTER(FinalM, 'Fact_Matches'[Home_Team_ID] = HID)
+				VAR AARows = FILTER(FinalM, 'Fact_Matches'[Away_Team_ID] = AID)
+				VAR HHRec = (COUNTROWS(FILTER(HHRows, 'Fact_Matches'[Home_Score] > 'Fact_Matches'[Away_Score])) + 0) & "-" & (COUNTROWS(FILTER(HHRows, 'Fact_Matches'[Home_Score] = 'Fact_Matches'[Away_Score])) + 0) & "-" & (COUNTROWS(FILTER(HHRows, 'Fact_Matches'[Home_Score] < 'Fact_Matches'[Away_Score])) + 0)
+				VAR AARec = (COUNTROWS(FILTER(AARows, 'Fact_Matches'[Away_Score] > 'Fact_Matches'[Home_Score])) + 0) & "-" & (COUNTROWS(FILTER(AARows, 'Fact_Matches'[Away_Score] = 'Fact_Matches'[Home_Score])) + 0) & "-" & (COUNTROWS(FILTER(AARows, 'Fact_Matches'[Away_Score] < 'Fact_Matches'[Home_Score])) + 0)
+				VAR StRows =
+					{
+						(1, "LEAGUE POSITION", IF(ISBLANK(HRk), "—", "#" & HRk), IF(ISBLANK(ARk), "—", "#" & ARk)),
+						(2, "POINTS", IF(ISBLANK(HPt), "—", FORMAT(HPt, "0")), IF(ISBLANK(APt), "—", FORMAT(APt, "0"))),
+						(3, "GOAL DIFFERENCE", IF(ISBLANK(HGDv), "—", FORMAT(HGDv, "+0;-0;0")), IF(ISBLANK(AGDv), "—", FORMAT(AGDv, "+0;-0;0"))),
+						(4, "ELO RATING", IF(ISBLANK(HElo), "—", FORMAT(HElo, "0")), IF(ISBLANK(AElo), "—", FORMAT(AElo, "0"))),
+						(5, "HOME / AWAY RECORD (W-D-L)", "Home " & HHRec, "Away " & AARec)
+					}
+				VAR StRowsHTML = CONCATENATEX(StRows, "<div style='display:flex;justify-content:space-between;padding:7px 2px;border-bottom:1px solid #23334C;font-size:12px;'><b style='color:#3B82F6;'>" & [Value3] & "</b><span style='" & MutedS & "'>" & [Value2] & "</span><b style='color:#E94560;'>" & [Value4] & "</b></div>", "", [Value1], ASC)
+				VAR FormT =
+					ADDCOLUMNS(
+						{(1, HID), (2, AID)},
+						"Chips",
+							VAR ftid = [Value2]
+							RETURN
+								CONCATENATEX(
+									TOPN(5, FILTER(FinalM, 'Fact_Matches'[Home_Team_ID] = ftid || 'Fact_Matches'[Away_Team_ID] = ftid), 'Fact_Matches'[date], DESC),
+									VAR fH = 'Fact_Matches'[Home_Team_ID] = ftid
+									VAR fGF = IF(fH, 'Fact_Matches'[Home_Score], 'Fact_Matches'[Away_Score])
+									VAR fGA = IF(fH, 'Fact_Matches'[Away_Score], 'Fact_Matches'[Home_Score])
+									VAR fR = IF(fGF > fGA, "W", IF(fGF < fGA, "L", "D"))
+									VAR fC = SWITCH(fR, "W", "#28C39A", "L", "#E94560", "#F5B942")
+									RETURN "<span title='" & IF(fH, "vs ", "@ ") & IF(fH, 'Fact_Matches'[Away_Team], 'Fact_Matches'[Home_Team]) & " " & fGF & "-" & fGA & "' style='display:inline-block;width:24px;height:24px;line-height:24px;text-align:center;border-radius:50%;margin-right:5px;background:" & fC & ";color:#08101D;font-weight:900;font-size:11px;'>" & fR & "</span>",
+									"", 'Fact_Matches'[date], ASC
+								)
+					)
+				VAR FormH = MAXX(FILTER(FormT, [Value1] = 1), [Chips])
+				VAR FormA = MAXX(FILTER(FormT, [Value1] = 2), [Chips])
+				VAR MeetRows =
+					CONCATENATEX(
+						FILTER(FinalM, ('Fact_Matches'[Home_Team_ID] = HID && 'Fact_Matches'[Away_Team_ID] = AID) || ('Fact_Matches'[Home_Team_ID] = AID && 'Fact_Matches'[Away_Team_ID] = HID)),
+						"<div style='display:flex;justify-content:space-between;gap:8px;padding:6px 2px;border-bottom:1px solid #23334C;font-size:11px;'><span style='" & MutedS & "'>" & FORMAT('Fact_Matches'[date], "dd MMM yyyy") & "</span><span>" & 'Fact_Matches'[Home_Team] & " <b style='color:#F5B942;'>" & FORMAT('Fact_Matches'[Home_Score], "0") & " - " & FORMAT('Fact_Matches'[Away_Score], "0") & "</b> " & 'Fact_Matches'[Away_Team] & "</span></div>",
+						"", 'Fact_Matches'[date], DESC
+					)
+				VAR ContextCard =
+					"<div style='" & CardS & "flex:1 1 380px;'><div style='" & TitleS & "'>FORM &amp; RECORD <span style='font-size:9px;color:#F5B942;margin-left:6px;'>LAST 5</span></div>" &
+					"<div style='display:flex;justify-content:space-between;gap:10px;margin-bottom:8px;'><div><div style='font-size:11px;font-weight:800;color:#3B82F6;margin-bottom:5px;'>" & HName & "</div>" & IF(FormH = "", "<span style='" & MutedS & "'>No matches</span>", FormH) & "</div>" &
+					"<div style='text-align:right;'><div style='font-size:11px;font-weight:800;color:#E94560;margin-bottom:5px;'>" & AName & "</div>" & IF(FormA = "", "<span style='" & MutedS & "'>No matches</span>", FormA) & "</div></div>" &
+					StRowsHTML &
+					"<div style='font-size:10px;letter-spacing:1px;color:#F5B942;font-weight:800;margin:12px 0 4px;'>HEAD TO HEAD THIS SEASON</div>" &
+					IF(MeetRows = "", "<div style='" & MutedS & "'>No completed meeting yet.</div>", MeetRows) & "</div>"
+
+				-- Best player per side = top "goal_contributions" (goals + assists) in the leaders boards for that club
+				VAR BestT =
+					ADDCOLUMNS(
+						ADDCOLUMNS(
+							ADDCOLUMNS({(1, HID), (2, AID)}, "Ab", VAR btid = [Value2] RETURN MAXX(FILTER(TeamsAll, 'Teams'[team_id] = btid), 'Teams'[abbrev])),
+							"BPid",
+								VAR bab = [Ab]
+								RETURN MAXX(TOPN(1, FILTER(LAll, 'Fact_Player_Leaders'[stat] = "goal_contributions" && 'Fact_Player_Leaders'[team] = bab), 'Fact_Player_Leaders'[value], DESC, 'Fact_Player_Leaders'[name], ASC), 'Fact_Player_Leaders'[player_id])
+						),
+						"Card",
+							VAR bp = [BPid]
+							VAR bsd = [Value1]
+							VAR bab2 = [Ab]
+							VAR br = FILTER(LAll, 'Fact_Player_Leaders'[player_id] = bp)
+							VAR bi = FILTER(PlayersAll, 'Dim_Players'[player_id] = bp)
+							VAR bnm = COALESCE(MAXX(bi, 'Dim_Players'[name]), MAXX(br, 'Fact_Player_Leaders'[name]), "No player in the leaders boards")
+							VAR bph = MAXX(bi, 'Dim_Players'[Player_Image_URL])
+							VAR bpos = COALESCE(MAXX(bi, 'Dim_Players'[position]), MAXX(br, 'Fact_Player_Leaders'[position]), "")
+							VAR bcol = IF(bsd = 1, "#3B82F6", "#E94560")
+							VAR bav =
+								"<div style='position:relative;flex:none;width:68px;height:68px;border-radius:50%;overflow:hidden;box-sizing:border-box;background:#263852;border:2px solid " & bcol & ";'>" &
+								"<span style='position:absolute;left:0;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center;color:#F5B942;font-size:24px;font-weight:900;'>" & LEFT(bnm, 1) & "</span>" &
+								IF(ISBLANK(bph), "", "<img alt='' src='" & bph & "' style='position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover;'/>") & "</div>"
+							VAR bT =
+								{
+									(1, "G+A", MAXX(FILTER(br, 'Fact_Player_Leaders'[stat] = "goal_contributions"), 'Fact_Player_Leaders'[value]), "0"),
+									(2, "GOALS", MAXX(FILTER(br, 'Fact_Player_Leaders'[stat] = "goals"), 'Fact_Player_Leaders'[value]), "0"),
+									(3, "ASSISTS", MAXX(FILTER(br, 'Fact_Player_Leaders'[stat] = "assists"), 'Fact_Player_Leaders'[value]), "0"),
+									(4, "xG", MAXX(FILTER(br, 'Fact_Player_Leaders'[stat] = "xg"), 'Fact_Player_Leaders'[value]), "0.00"),
+									(5, "SHOTS", MAXX(FILTER(br, 'Fact_Player_Leaders'[stat] = "shots"), 'Fact_Player_Leaders'[value]), "0")
+								}
+							VAR bTiles = CONCATENATEX(bT, "<div style='box-sizing:border-box;flex:1 1 60px;padding:8px;border-radius:10px;background:#0F1A2D;border:1px solid #293B58;text-align:center;'><div style='font-size:8px;letter-spacing:1px;color:#A9B8CE;'>" & [Value2] & "</div><div style='font-size:17px;font-weight:900;margin-top:3px;'>" & IF(ISBLANK([Value3]), "—", FORMAT([Value3], [Value4])) & "</div></div>", "", [Value1], ASC)
+							RETURN
+								"<div style='" & CardS & "border-top:3px solid " & bcol & ";'><div style='font-size:9px;letter-spacing:1.4px;color:#F5B942;font-weight:800;margin-bottom:10px;'>" & IF(bsd = 1, "HOME", "AWAY") & " · TOP CONTRIBUTOR</div>" &
+								"<div style='display:flex;align-items:center;gap:12px;'>" & bav & "<div style='min-width:0;'><div style='font-size:15px;font-weight:900;'>" & bnm & "</div><div style='" & MutedS & "margin-top:3px;'>" & UPPER(bpos) & IF(bpos = "", "", " · ") & bab2 & "</div></div></div>" &
+								"<div style='display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;'>" & bTiles & "</div></div>"
+					)
+				VAR BestH = MAXX(FILTER(BestT, [Value1] = 1), [Card])
+				VAR BestA = MAXX(FILTER(BestT, [Value1] = 2), [Card])
+				VAR BestCol =
+					"<div style='flex:1 1 320px;min-width:0;display:flex;flex-direction:column;gap:14px;'>" & BestH & BestA &
+					"<div style='" & MutedS & "'>Ranked by goals + assists in the leaders boards (top 100 per stat only), so a club may show no player.</div></div>"
+
+				-- Player Comparison page (up to 4 players from the Compare Pick slicer; top 3 scorers when nothing is selected)
+				VAR CmpCards =
+					CONCATENATEX(
+						SelPT,
+						VAR cp = [pid]
+						VAR ccl = [Col]
+						VAR cn = [Nm]
+						VAR cpr = FILTER(LAll, 'Fact_Player_Leaders'[player_id] = cp)
+						VAR ci = FILTER(PlayersAll, 'Dim_Players'[player_id] = cp)
+						VAR cab = COALESCE(MAXX(ci, 'Dim_Players'[team]), MAXX(cpr, 'Fact_Player_Leaders'[team]))
+						VAR ctm = FILTER(TeamsAll, 'Teams'[abbrev] = cab)
+						VAR cLogo = MAXX(ctm, 'Teams'[logo])
+						VAR cClub = COALESCE(MAXX(ctm, 'Teams'[display_name]), cab, "Club unavailable")
+						VAR cPos = COALESCE(MAXX(ci, 'Dim_Players'[position]), MAXX(cpr, 'Fact_Player_Leaders'[position]), "Player")
+						VAR cPh = MAXX(ci, 'Dim_Players'[Player_Image_URL])
+						VAR cAv =
+							"<div style='position:relative;flex:none;width:84px;height:84px;border-radius:50%;overflow:hidden;box-sizing:border-box;background:#263852;border:3px solid " & ccl & ";'>" &
+							"<span style='position:absolute;left:0;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center;color:#F5B942;font-size:30px;font-weight:900;'>" & LEFT(cn, 1) & "</span>" &
+							IF(ISBLANK(cPh), "", "<img alt='' src='" & cPh & "' style='position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover;'/>") & "</div>"
+						VAR cLogoHTML = IF(ISBLANK(cLogo), "", "<img alt='' src='" & cLogo & "' style='width:18px;height:18px;object-fit:contain;vertical-align:middle;margin-right:6px;'/>")
+						VAR cGm = MAXX(cpr, 'Fact_Player_Leaders'[games])
+						VAR cMn = MAXX(cpr, 'Fact_Player_Leaders'[minutes])
+						VAR cG = MAXX(FILTER(cpr, 'Fact_Player_Leaders'[stat] = "goals"), 'Fact_Player_Leaders'[value])
+						VAR cA = MAXX(FILTER(cpr, 'Fact_Player_Leaders'[stat] = "assists"), 'Fact_Player_Leaders'[value])
+						VAR cX = MAXX(FILTER(cpr, 'Fact_Player_Leaders'[stat] = "xg"), 'Fact_Player_Leaders'[value])
+						VAR cS = MAXX(FILTER(cpr, 'Fact_Player_Leaders'[stat] = "shots"), 'Fact_Player_Leaders'[value])
+						VAR cO = MAXX(FILTER(cpr, 'Fact_Player_Leaders'[stat] = "shots_on_target"), 'Fact_Player_Leaders'[value])
+						VAR cG90 = MAXX(FILTER(cpr, 'Fact_Player_Leaders'[stat] = "goals"), 'Fact_Player_Leaders'[per90])
+						VAR cA90 = MAXX(FILTER(cpr, 'Fact_Player_Leaders'[stat] = "assists"), 'Fact_Player_Leaders'[per90])
+						VAR cTiles =
+							{
+								(1, "APPS", IF(ISBLANK(cGm), "—", FORMAT(cGm, "0"))),
+								(2, "MINUTES", IF(ISBLANK(cMn), "—", FORMAT(cMn, "#,##0"))),
+								(3, "GOALS", IF(ISBLANK(cG), "—", FORMAT(cG, "0"))),
+								(4, "ASSISTS", IF(ISBLANK(cA), "—", FORMAT(cA, "0"))),
+								(5, "xG", IF(ISBLANK(cX), "—", FORMAT(cX, "0.00"))),
+								(6, "SHOTS", IF(ISBLANK(cS), "—", FORMAT(cS, "0"))),
+								(7, "ON TARGET", IF(ISBLANK(cO), "—", FORMAT(cO, "0"))),
+								(8, "GOALS / 90", IF(ISBLANK(cG90), "—", FORMAT(cG90, "0.00"))),
+								(9, "ASSISTS / 90", IF(ISBLANK(cA90), "—", FORMAT(cA90, "0.00")))
+							}
+						VAR cTilesHTML = CONCATENATEX(cTiles, "<div style='box-sizing:border-box;flex:1 1 30%;min-width:70px;padding:8px;border-radius:10px;background:#0F1A2D;border:1px solid #293B58;text-align:center;'><div style='font-size:8px;letter-spacing:1px;color:#A9B8CE;'>" & [Value2] & "</div><div style='font-size:16px;font-weight:900;margin-top:3px;'>" & [Value3] & "</div></div>", "", [Value1], ASC)
+						RETURN
+							"<div style='" & CardS & "flex:1 1 230px;border-top:3px solid " & ccl & ";'><div style='display:flex;align-items:center;gap:12px;'>" & cAv &
+							"<div style='min-width:0;'><div style='font-size:15px;font-weight:900;'>" & cn & "</div><div style='" & MutedS & "margin-top:3px;'>" & cLogoHTML & cClub & "</div><div style='font-size:10px;color:" & ccl & ";font-weight:800;margin-top:3px;'>" & UPPER(cPos) & "</div></div></div>" &
+							"<div style='display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;'>" & cTilesHTML & "</div></div>",
+						"", [idx], ASC
+					)
+				VAR Mtr =
+					{
+						(1, "GOALS / 90", "goals", "p90"),
+						(2, "ASSISTS / 90", "assists", "p90"),
+						(3, "xG / 90", "xg", "p90"),
+						(4, "SHOTS / 90", "shots", "p90"),
+						(5, "SHOTS ON TARGET / 90", "shots_on_target", "p90"),
+						(6, "GOALS + ASSISTS / 90", "goal_contributions", "p90"),
+						(7, "GOALS (TOTAL)", "goals", "tot"),
+						(8, "ASSISTS (TOTAL)", "assists", "tot"),
+						(9, "xG (TOTAL)", "xg", "tot")
+					}
+				VAR MetBlocks =
+					CONCATENATEX(
+						Mtr,
+						VAR msk = [Value3]
+						VAR mkd = [Value4]
+						VAR mlb = [Value2]
+						VAR Vals =
+							ADDCOLUMNS(
+								SelPT,
+								"V",
+									VAR mp = [pid]
+									RETURN MAXX(FILTER(LAll, 'Fact_Player_Leaders'[player_id] = mp && 'Fact_Player_Leaders'[stat] = msk), IF(mkd = "p90", 'Fact_Player_Leaders'[per90], 'Fact_Player_Leaders'[value]))
+							)
+						VAR Mxv = MAXX(Vals, [V])
+						VAR Ldr = MAXX(TOPN(1, Vals, [V], DESC, [idx], ASC), [Nm])
+						VAR mfmt = IF(mkd = "p90" || msk = "xg", "0.00", "0")
+						RETURN
+							"<div style='margin:12px 0;'><div style='display:flex;justify-content:space-between;font-size:11px;margin-bottom:5px;'><b>" & mlb & "</b><span style='" & MutedS & "'>" & IF(ISBLANK(Mxv) || Mxv = 0, "", "LEADER · <b style='color:#F5B942;'>" & Ldr & "</b>") & "</span></div>" &
+							CONCATENATEX(
+								Vals,
+								VAR mv = [V]
+								RETURN "<div style='display:flex;align-items:center;gap:8px;margin:3px 0;'><span style='width:96px;flex:none;font-size:10px;color:#A9B8CE;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;'>" & [Nm] & "</span><div style='flex:1;height:8px;border-radius:4px;background:#23334C;'><div style='width:" & ROUND(100 * DIVIDE(COALESCE(mv, 0), Mxv, 0), 0) & "%;height:8px;border-radius:4px;background:" & [Col] & ";'></div></div><b style='width:46px;flex:none;text-align:right;font-size:11px;'>" & IF(ISBLANK(mv), "—", FORMAT(mv, mfmt)) & "</b></div>",
+								"", [idx], ASC
+							) & "</div>",
+						"", [Value1], ASC
+					)
+				VAR CmpNote = "<div style='" & MutedS & "line-height:1.5;'>Radar and per-90 bars use the leaders boards (top 100 per stat). Radar score = player per-90 ÷ league maximum per-90 for that stat (players with 270+ minutes); hover a shape for the real values. A dash means the player is not in that board. Age, xA, key passes, dribbles and defensive actions are not in the model, so they are not shown.</div>"
+				-- Navigator header (brand | tabs | selector), drawn inside the HTML
+				VAR Completion0 = FORMAT(COALESCE(Completion, 0), "0%")
+				VAR SelLabel = SWITCH(Page, "teams", "CLUB", "players", "PLAYER", "matches", "MATCH", "compare", "COMPARE", "SEASON")
+				VAR SelText = SWITCH(Page, "teams", TName, "players", PName, "matches", HName & " vs " & AName, "compare", COUNTROWS(SelP) & " players", SeasonLabel & " · " & Completion0 & " played")
+				VAR Nav =
+					CONCATENATEX(
+						ALL('Dashboard Pages'),
+						"<span style='box-sizing:border-box;width:132px;text-align:center;padding:10px 0;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.9px;white-space:nowrap;" &
+						IF('Dashboard Pages'[PageKey] = Page, "background:#1E3A66;color:#FFFFFF;box-shadow:inset 0 -2px 0 #E94560;", "color:#8FA2BD;") &
+						"'>" & UPPER('Dashboard Pages'[PageTitle]) & "</span>",
+						"", 'Dashboard Pages'[PageOrder], ASC
+					)
+				VAR HeaderHTML =
+					"<div style='box-sizing:border-box;padding:12px 16px;border-radius:16px;background:#0D1627;border:1px solid #2A3B57;border-top:2px solid #E94560;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;'>" &
+					"<div style='display:flex;align-items:center;gap:10px;'><div style='font-size:24px;font-weight:900;letter-spacing:.5px;color:#E94560;'>LALIGA</div><div style='line-height:1.15;'><div style='font-size:11px;font-weight:900;letter-spacing:1.2px;'>MATCH INTELLIGENCE</div><div style='font-size:8px;letter-spacing:1.4px;color:#8FA2BD;'>SEASON " & SeasonLabel & "</div></div></div>" &
+					"<div style='display:flex;gap:0;padding:4px;border-radius:999px;background:#0A1222;border:1px solid #23334C;'>" & Nav & "</div>" &
+					"<div style='box-sizing:border-box;width:230px;padding:8px 14px;border-radius:12px;background:#111D31;border:1px solid #2A3B57;'><div style='font-size:8px;letter-spacing:1.4px;color:#F5B942;font-weight:800;'>" & SelLabel & " ▾</div><div style='font-size:12px;font-weight:800;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>" & SelText & "</div></div></div>"
+				VAR FooterHTML = "<div style='padding:6px;text-align:center;font-size:10px;color:#7487A4;'>LALIGA " & SeasonLabel & " · " & UPPER(Page) & " · data loaded in this model</div></div>"
+
+				-- Pages
+				VAR OverviewPage =
+					ShellS & HeaderHTML & KPIHTML &
+					"<div style='" & FlexRowS & "'>" & MatchHero & UpcomingCard & "</div>" &
+					"<div style='" & FlexRowS & "'>" & StandCard & GoalsCard & "</div>" &
+					"<div style='" & FlexRowS & "'>" & AssistsCard & LatestCard & "</div>" & FooterHTML
+				VAR ComparePage =
+					ShellS & HeaderHTML &
+					"<div style='" & FlexRowS & "'>" & CmpCards & "</div>" &
+					"<div style='" & FlexRowS & "'>" &
+					"<div style='" & CardS & "flex:1 1 340px;'><div style='" & TitleS & "'>PERFORMANCE RADAR <span style='font-size:9px;color:#F5B942;margin-left:6px;'>PER 90</span></div>" & RadarHTML & "<div style='text-align:center;margin-top:6px;'>" & RadarLegend & "</div></div>" &
+					"<div style='" & CardS & "flex:2 1 520px;'><div style='" & TitleS & "'>HEAD TO HEAD <span style='font-size:9px;color:#F5B942;margin-left:6px;'>PER-90 FIRST, THEN TOTALS</span></div>" & MetBlocks & "</div></div>" &
+					"<div style='" & CardS & "flex:1 1 100%;'>" & CmpNote & "</div>" & FooterHTML
+				VAR TeamPage =
+					ShellS & HeaderHTML & "<div style='" & FlexRowS & "'>" & TeamHero & "</div>" &
+					"<div style='" & FlexRowS & "'>" & StandNearCard & AttackCard & DefenceCard & "</div>" &
+					"<div style='" & FlexRowS & "'>" & HomeAwayCard & SetCard & "</div>" &
+					"<div style='" & FlexRowS & "'>" & SquadCard & RecentCard & "</div>" & FooterHTML
+				VAR PlayerPage =
+					ShellS & HeaderHTML &
+					"<div style='" & FlexRowS & "'><div style='" & CardS & "flex:1 1 440px;background:linear-gradient(130deg,#111D31,#1C2D48);display:flex;flex-wrap:wrap;align-items:center;gap:14px;'>" & PPhotoHTML &
+					"<div style='flex:1 1 130px;min-width:0;'><div style='font-size:9px;letter-spacing:1.5px;color:#F5B942;font-weight:800;'>PLAYER PROFILE</div><div style='font-size:22px;font-weight:900;margin-top:4px;'>" & PName & "</div><div style='" & MutedS & "margin-top:3px;'>" & PPos & " · " & PTeam & "</div></div>" & RadarBox & "</div>" &
+					"<div style='" & CardS & "flex:2 1 420px;'><div style='" & TitleS & "'>PERFORMANCE VS LEAGUE LEADERS <span style='font-size:9px;color:#F5B942;margin-left:6px;'>TOP-100 BOARDS</span></div><div style='display:flex;flex-wrap:wrap;justify-content:space-around;gap:12px;'>" & RingsHTML & "</div></div></div>" &
+					"<div style='display:flex;flex-wrap:wrap;gap:10px;'>" & PlayerTilesHTML & "</div>" &
+					"<div style='" & FlexRowS & "'>" & GoalsCard & AssistsCard & "</div>" &
+					"<div style='" & FlexRowS & "'>" & XGCard & ShotsCard & "</div>" & FooterHTML
+				VAR MatchPage =
+					ShellS & HeaderHTML &
+					"<div style='" & FlexRowS & "'>" & MatchHero & ContextCard & "</div>" &
+					"<div style='" & FlexRowS & "'>" & H2HCard & BestCol & "</div>" &
+					"<div style='" & FlexRowS & "'>" & UpcomingCard & LatestCard & "</div>" & FooterHTML
+				RETURN
+					SWITCH(Page, "teams", TeamPage, "players", PlayerPage, "matches", MatchPage, "compare", ComparePage, OverviewPage)
+			formatString: General

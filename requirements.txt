@@ -1,0 +1,8 @@
+# LaLiga Match Intelligence & Analytics Platform Dependencies
+pandas>=2.0.0
+requests>=2.31.0
+SQLAlchemy>=2.0.0
+pyodbc>=5.0.0
+python-dotenv>=1.0.0
+python-docx>=1.1.0
+
