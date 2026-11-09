@@ -377,8 +377,4 @@ python scripts/fetch_photos.py
 - **Portfolio**: [portfolio-bay-five-76.vercel.app](https://portfolio-bay-five-76.vercel.app/)
 - **Email**: [moaazachraf503@gmail.com](mailto:moaazachraf503@gmail.com)
 
----
-
-## 📄 License
-This project is open-source and licensed under the [MIT License](LICENSE).
 
