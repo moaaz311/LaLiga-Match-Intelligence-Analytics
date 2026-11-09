@@ -1,7 +1,6 @@
 <div align="center">
 
-![LaLiga Season Banner](assets/banners/LaLiga%20Season%202026_2027%20Banner.png)
-
+![LaLiga Season Banner](assets/banners/LaLiga%20Season%202026_2027%20Graphic.png)
 # ⚽ LaLiga Match Intelligence & Analytics Platform
 ### *End-to-End Football Data Engineering, Star Schema Modeling, and Interactive Power BI Analytics*
 
