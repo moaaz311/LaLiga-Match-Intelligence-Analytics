@@ -156,7 +156,7 @@ The SQL Server database `SpainLeague` is modeled as a dimensional data warehouse
 <div align="center">
 
 ![Data Model](project_screens/a_detailed_high_contrast_power_bi_style_data_mode.png)
-*Figure 2: Power BI High-Contrast Relational Star Schema Data Model.*
+*Figure 2: Power BI High-Contrast Relational Glaxay Schema Data Model.*
 
 </div>
 
