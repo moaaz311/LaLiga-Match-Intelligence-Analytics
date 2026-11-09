@@ -57,7 +57,7 @@ The platform operates as a cohesive 5-tier analytics pipeline:
 
 <div align="center">
 
-![Architecture & Star Schema](docs/architecture/LaLiga%20Match%20Intelligence%20Pipeline%20%26%20Star%20Schema.png)
+![Architecture & Star Schema](project_screens/LaLiga%20Match%20Intelligence%20Pipeline.png)
 *Figure 1: Full-lifecycle Data Pipeline Architecture and Star Schema Warehouse.*
 
 </div>
@@ -155,8 +155,8 @@ The SQL Server database `SpainLeague` is modeled as a dimensional data warehouse
 
 <div align="center">
 
-![Data Model](docs/architecture/LaLiga_data_model.png)
-*Figure 2: Power BI Star Schema and Relational Relationships.*
+![Data Model](project_screens/a_detailed_high_contrast_power_bi_style_data_mode.png)
+*Figure 2: Power BI High-Contrast Relational Star Schema Data Model.*
 
 </div>
 
@@ -186,8 +186,8 @@ The application is deployed on a custom **2560 × 1150 ultra-wide high-definitio
 
 <div align="center">
 
-![League Overview](docs/screenshots/overview.png)
-*Figure 3: League Overview Dashboard Page.*
+![League Overview](project_screens/laliga_dashboard_scroll.gif)
+*Figure 3: Interactive League Overview Dashboard Walkthrough.*
 
 </div>
 
@@ -202,8 +202,8 @@ The application is deployed on a custom **2560 × 1150 ultra-wide high-definitio
 
 <div align="center">
 
-![Team Intelligence](docs/screenshots/Teampreformannce.png)
-*Figure 4: Team Performance & Tactical Intelligence Page.*
+![Team Intelligence](project_screens/laliga_team_time_full_scroll.gif)
+*Figure 4: Team Performance & Tactical Intelligence Interactive Walkthrough.*
 
 </div>
 
@@ -217,8 +217,8 @@ The application is deployed on a custom **2560 × 1150 ultra-wide high-definitio
 
 <div align="center">
 
-![Match Centre](docs/screenshots/teamscompare.png)
-*Figure 5: Match Centre Head-to-Head Comparison Page.*
+![Match Centre](project_screens/laliga_match_centre_scroll.gif)
+*Figure 5: Match Centre Head-to-Head Tactical Preview Walkthrough.*
 
 </div>
 
@@ -232,8 +232,8 @@ The application is deployed on a custom **2560 × 1150 ultra-wide high-definitio
 
 <div align="center">
 
-![Player Lab](docs/screenshots/player.png)
-*Figure 6: Individual Player Lab Page.*
+![Player Lab](project_screens/laliga_player_lab_recreated_scroll.gif)
+*Figure 6: Individual Player Lab Scouting & Performance Walkthrough.*
 
 </div>
 
@@ -247,8 +247,8 @@ The application is deployed on a custom **2560 × 1150 ultra-wide high-definitio
 
 <div align="center">
 
-![Player Comparison](docs/screenshots/playerscompares.png)
-*Figure 7: Multi-Player Comparison with SVG Radar Chart.*
+![Player Comparison](project_screens/laliga_player_comparison_scroll.gif)
+*Figure 7: Multi-Player Comparison with Dynamic SVG Polar Radar Chart.*
 
 </div>
 
