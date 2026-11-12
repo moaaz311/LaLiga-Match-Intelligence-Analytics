@@ -351,7 +351,7 @@ The application is deployed on a custom **2560 × 1150 ultra-wide high-definitio
 - **Radar Benchmark**: 5-axis normalized radar chart evaluating scoring volume, shooting accuracy, goal contributions, and per-90 rates.
 
 <p align="center">
-  <img src="docs/screenshots/playerlab.png" alt="Player Lab" width="100%">
+  <img src="docs/screenshots/playerlap.png" alt="Player Lab" width="100%">
 </p>
 
 *Figure 6: Individual Player Lab Scouting & Performance Screenshot.*
